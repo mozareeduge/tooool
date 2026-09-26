@@ -1,0 +1,14 @@
+{
+  "package": "pdf-stamp-signer_AGENT_READY_v1.2",
+  "state": "implementation_complete_one_click_activation_pending_target_machine_registry_and_visual_acceptance",
+  "primary_action_windows": "AGENT_ONE_CLICK_WINDOWS.cmd",
+  "primary_action_unix": "./AGENT_ONE_CLICK_UNIX.sh",
+  "human_action_windows": "START_WINDOWS.cmd",
+  "verification": "npm run verify",
+  "visual_acceptance": ["A1", "A2"],
+  "acceptance_doc": "docs/ACCEPTANCE_TESTS.md",
+  "frozen_stack": ["React", "Vite", "TypeScript", "Tailwind CSS", "react-pdf", "pdfjs-dist", "react-rnd", "pdf-lib"],
+  "allowed_work": ["run one-click activation", "visual acceptance A1-A2", "minimal evidence-driven defect repair"],
+  "forbidden_work": ["architecture rewrite", "backend", "database", "framework replacement", "state library addition", "PDF engine replacement", "unrequested feature expansion", "speculative refactoring"],
+  "stop_when": ["one-click activation passes", "npm run verify passes", "app health check passes", "visual A1-A2 pass"]
+}

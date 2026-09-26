@@ -1,0 +1,38 @@
+{
+  "name": "pdf-stamp-signer",
+  "private": true,
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "preflight": "node scripts/preflight.mjs",
+    "test:deps": "npm ls --depth=0",
+    "test:geometry": "node --experimental-strip-types scripts/geometry-selftest.ts",
+    "test:export": "node --experimental-strip-types scripts/export-selftest.ts",
+    "sync:pdfjs": "node scripts/sync-pdfjs-assets.mjs",
+    "dev": "npm run sync:pdfjs && vite",
+    "start:local": "npm run sync:pdfjs && vite --host 127.0.0.1 --open",
+    "build": "npm run sync:pdfjs && tsc -b && vite build",
+    "verify": "npm run preflight && npm run test:deps && npm run test:geometry && npm run test:export && npm run build",
+    "preview": "vite preview --host 127.0.0.1 --open"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-pdf": "11.0.0",
+    "react-rnd": "10.5.3",
+    "pdfjs-dist": "6.3.289"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "~5.9.2",
+    "vite": "8.3.1"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

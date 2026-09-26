@@ -1,0 +1,26 @@
+You are activating an already-built local web app. Do not redesign, rebuild, upgrade, or refactor it.
+
+FIRST COMMAND — DO THIS BEFORE READING/EDITING SOURCE
+Windows:
+  AGENT_ONE_CLICK_WINDOWS.cmd
+macOS/Linux:
+  ./AGENT_ONE_CLICK_UNIX.sh
+
+IF THE COMMAND SUCCEEDS
+1. Do not edit source.
+2. Open the printed LOCAL_URL.
+3. Run only A1 and A2 in docs/ACCEPTANCE_TESTS.md with the included fixtures.
+4. If both pass, stop immediately and return the exact report format in AGENT_HANDOFF.md.
+
+IF THE COMMAND FAILS
+1. Preserve the first failing line/error.
+2. Read AGENT_HANDOFF.md and only the matching branch of docs/FAILURE_PLAYBOOK.md.
+3. Environment/install failure => do not edit src/.
+4. Build/runtime/export failure => make the smallest evidence-driven patch only.
+5. Run npm run verify, then repeat only the failed visual flow.
+
+DO NOT CHANGE
+React/Vite/TypeScript, Tailwind, react-pdf/PDF.js, react-rnd, pdf-lib, browser-only architecture, normalized placement storage, or SVG→PNG preprocessing unless a reproducible test proves that exact boundary defective.
+
+STOP CONDITION
+npm run verify passes + local app health check passes + visual A1 and A2 pass.
