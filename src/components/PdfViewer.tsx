@@ -110,12 +110,12 @@ export function PdfViewer({
           <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-500">
             PDF
           </div>
-          <h1 className="mt-4 text-lg font-bold text-slate-900">Open a PDF to start</h1>
+          <h1 className="mt-4 text-lg font-bold text-slate-900">Open a PDF or a photo to start</h1>
           <ol className="mt-3 space-y-1 text-left text-sm leading-6 text-slate-500">
             <li>
               1. {hasAssets ? 'Your saved stamps & signatures are ready above.' : 'Add your stamp and signatures (SVG or PNG) once. They are kept on this device.'}
             </li>
-            <li>2. Open the PDF, go to a page, tap an image to place it.</li>
+            <li>2. Open the PDF (or a photo/scan of the document), go to a page, tap an image to place it.</li>
             <li>3. Drag to move, pull a blue corner to resize.</li>
             <li>4. Save or Share the finished PDF.</li>
           </ol>

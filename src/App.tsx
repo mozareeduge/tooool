@@ -10,9 +10,10 @@ import {
   outputFileName,
   shareBytes,
 } from './utils/exportPdf'
-import { clamp, findFreeSpot, placementForPage } from './utils/geometry'
+import { clamp, findFreeSpot, placementForPage, resizePlacementForAssetAspect } from './utils/geometry'
 import { convertToGrayscale } from './utils/grayscale'
-import { normalizeImageFile } from './utils/image'
+import { normalizeImageFile, stripBackground } from './utils/image'
+import { imagesToPdf, isImageFile } from './utils/imageToPdf'
 
 const PDF_HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d]
 
@@ -108,22 +109,33 @@ function App() {
     setStatus(message)
   }
 
-  const handlePdfUpload = async (file: File) => {
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      showError('Please choose a PDF file.')
+  const handleDocumentFiles = async (files: File[]) => {
+    if (!files.length) return
+    const pdfFile = files.find((file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))
+    const images = files.filter(isImageFile)
+    if (!pdfFile && !images.length) {
+      showError('Please choose a PDF or an image (JPEG, PNG, …).')
       return
     }
 
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      if (!hasPdfHeader(bytes)) {
-        throw new Error('This file is not a valid PDF.')
+      let bytes: Uint8Array
+      let name: string
+      if (pdfFile) {
+        bytes = new Uint8Array(await pdfFile.arrayBuffer())
+        name = pdfFile.name
+        if (!hasPdfHeader(bytes)) throw new Error('This file is not a valid PDF.')
+      } else {
+        // Photos/scans become a PDF, one page per image, in the order picked.
+        setBusy(true)
+        bytes = await imagesToPdf(images)
+        name = `${images[0].name.replace(/\.[^.]+$/, '')}.pdf`
       }
 
       const blobBytes = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
       const objectUrl = URL.createObjectURL(new Blob([blobBytes], { type: 'application/pdf' }))
 
-      setPdf({ name: file.name, bytes, objectUrl })
+      setPdf({ name, bytes, objectUrl })
       setPlacements([])
       setPageGeometry({})
       setPageCount(0)
@@ -131,9 +143,12 @@ function App() {
       setSelectedId(null)
       builtRef.current = null
       setError(null)
-      setStatus(assetList.length ? 'PDF opened. Tap a stamp or signature to place it.' : 'PDF opened. Now add your stamp or signature.')
+      const opened = pdfFile ? 'PDF opened.' : `${images.length === 1 ? 'Image' : `${images.length} images`} opened as a PDF.`
+      setStatus(`${opened} ${assetList.length ? 'Tap a stamp or signature to place it.' : 'Now add your stamp or signature.'}`)
     } catch (uploadError) {
-      showError(uploadError instanceof Error ? uploadError.message : 'Could not read the PDF.')
+      showError(uploadError instanceof Error ? uploadError.message : 'Could not open this file.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -159,10 +174,11 @@ function App() {
     } else if (notSaved) {
       showError('Added, but this browser would not store it: you will need to add it again next time.')
     } else {
+      const cleaned = added.filter((asset) => asset.backgroundRemoved).length
       showStatus(
         `${added.length === 1 ? `${added[0].name} added` : `${added.length} images added`} and kept on this device.${
-          pdf ? ' Tap it to place it.' : ''
-        }`,
+          cleaned ? ` Background removed${added.length > 1 ? ` from ${cleaned}` : ''} (tap "Undo BG" to keep it).` : ''
+        }${pdf ? ' Tap to place.' : ''}`,
       )
     }
   }
@@ -179,6 +195,48 @@ function App() {
     setPlacements((current) =>
       current.map((placement) => (placement.assetId === assetId ? { ...placement, kind } : placement)),
     )
+  }
+
+  const toggleBackground = async (assetId: string) => {
+    const asset = assets[assetId]
+    if (!asset) return
+    let updated: ImageAsset
+    if (asset.backgroundRemoved && asset.original) {
+      const { dataUrl, width, height } = asset.original
+      updated = { ...asset, dataUrl, width, height, aspectRatio: width / height, backgroundRemoved: false }
+    } else {
+      const source = asset.original ?? { dataUrl: asset.dataUrl, width: asset.width, height: asset.height }
+      setBusy(true)
+      try {
+        const stripped = await stripBackground(source.dataUrl, true)
+        if (!stripped) {
+          showError('No background found to remove in this image.')
+          return
+        }
+        updated = {
+          ...asset,
+          ...stripped,
+          aspectRatio: stripped.width / stripped.height,
+          original: source,
+          backgroundRemoved: true,
+        }
+      } finally {
+        setBusy(false)
+      }
+    }
+
+    setAssetList((current) => current.map((item) => (item.id === assetId ? updated : item)))
+    // Keep placed copies undistorted when the trim changes the image shape.
+    setPlacements((current) =>
+      current.map((placement) => {
+        const geometry = pageGeometry[placement.pageIndex]
+        return placement.assetId === assetId && geometry
+          ? resizePlacementForAssetAspect(placement, geometry, updated.aspectRatio)
+          : placement
+      }),
+    )
+    void saveStoredAsset(updated)
+    showStatus(updated.backgroundRemoved ? `Background removed from ${asset.name}.` : `${asset.name} restored to the original.`)
   }
 
   const removeAsset = (assetId: string) => {
@@ -201,7 +259,7 @@ function App() {
     const geometry = pageGeometry[pageIndex]
     if (!asset) return
     if (!pdf || !geometry) {
-      showError(pdf ? 'The page is still loading. Try again in a moment.' : 'Open a PDF first, then tap the image to place it.')
+      showError(pdf ? 'The page is still loading. Try again in a moment.' : 'Open a PDF or photo first, then tap the image to place it.')
       return
     }
 
@@ -346,7 +404,8 @@ function App() {
         blackWhite={blackWhite}
         onBlackWhiteChange={setBlackWhite}
         shareAvailable={shareAvailable}
-        onPdfUpload={handlePdfUpload}
+        onDocumentFiles={handleDocumentFiles}
+        onToggleBackground={toggleBackground}
         onAssetFiles={handleAssetFiles}
         onPlace={placeAsset}
         onRemoveAsset={removeAsset}

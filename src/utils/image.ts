@@ -1,4 +1,5 @@
 import type { AssetKind, ImageAsset } from '../types'
+import { hasOpaqueBackground, removeBackground } from './background'
 
 const SVG_RASTER_LONG_EDGE = 2048
 const RASTER_MAX_EDGE = 2048
@@ -252,6 +253,37 @@ async function normalizeRaster(file: File, isPng: boolean): Promise<{
   return { dataUrl: canvasToPng(image, width, height), width, height }
 }
 
+/**
+ * Removes a paper/solid background and trims the empty margin. Without
+ * `force`, images that are already transparent are returned as null (left alone).
+ */
+export async function stripBackground(
+  dataUrl: string,
+  force = false,
+): Promise<{ dataUrl: string; width: number; height: number } | null> {
+  const image = await loadImage(dataUrl)
+  const width = image.naturalWidth
+  const height = image.naturalHeight
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) throw new Error('Canvas 2D is unavailable in this browser.')
+  context.drawImage(image, 0, 0)
+
+  const pixels = context.getImageData(0, 0, width, height)
+  if (!force && !hasOpaqueBackground(pixels)) return null
+  const box = removeBackground(pixels)
+  if (!box) return null
+  context.putImageData(pixels, 0, 0)
+
+  const cropped = document.createElement('canvas')
+  cropped.width = box.width
+  cropped.height = box.height
+  cropped.getContext('2d')?.drawImage(canvas, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height)
+  return { dataUrl: cropped.toDataURL('image/png'), width: box.width, height: box.height }
+}
+
 /** Guess the label from the file name; the user can switch it afterwards. */
 export function guessAssetKind(fileName: string): AssetKind {
   return /stamp|seal|mohr|\u0645\u0647\u0631/i.test(fileName) ? 'stamp' : 'signature'
@@ -276,16 +308,20 @@ export async function normalizeImageFile(
   }
 
   const normalized = isSvg ? await svgToPng(file) : await normalizeRaster(file, isPng)
+  // Photos/scans of ink on paper, or artwork with a box behind it: cut it out.
+  const stripped = await stripBackground(normalized.dataUrl)
+  const final = stripped ?? normalized
 
   return {
     id: newAssetId(),
     kind,
     name: file.name,
-    dataUrl: normalized.dataUrl,
-    width: normalized.width,
-    height: normalized.height,
-    aspectRatio: normalized.width / normalized.height,
+    dataUrl: final.dataUrl,
+    width: final.width,
+    height: final.height,
+    aspectRatio: final.width / final.height,
     sourceType: isSvg ? 'svg' : isPng ? 'png' : 'raster',
     addedAt: Date.now(),
+    ...(stripped ? { original: normalized, backgroundRemoved: true } : {}),
   }
 }

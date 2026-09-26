@@ -11,7 +11,8 @@ interface SidebarProps {
   blackWhite: boolean
   shareAvailable: boolean
   onBlackWhiteChange: (value: boolean) => void
-  onPdfUpload: (file: File) => Promise<void>
+  onDocumentFiles: (files: File[]) => Promise<void>
+  onToggleBackground: (assetId: string) => Promise<void>
   onAssetFiles: (files: File[]) => Promise<void>
   onPlace: (assetId: string) => void
   onRemoveAsset: (assetId: string) => void
@@ -38,12 +39,14 @@ function AssetTile({
   onPlace,
   onRemove,
   onSetKind,
+  onToggleBackground,
 }: {
   asset: ImageAsset
   canPlace: boolean
   onPlace: () => void
   onRemove: () => void
   onSetKind: (kind: AssetKind) => void
+  onToggleBackground: () => void
 }) {
   const other: AssetKind = asset.kind === 'stamp' ? 'signature' : 'stamp'
 
@@ -52,7 +55,7 @@ function AssetTile({
       <button
         type="button"
         onClick={onPlace}
-        title={canPlace ? `Place ${asset.name} on this page` : 'Open a PDF first'}
+        title={canPlace ? `Place ${asset.name} on this page` : 'Open a document first'}
         className={`block w-full rounded-2xl border border-slate-200 bg-white p-1.5 text-left shadow-sm transition active:scale-[0.97] ${
           canPlace ? 'hover:border-blue-400' : 'opacity-70'
         }`}
@@ -71,6 +74,14 @@ function AssetTile({
         }`}
       >
         {asset.kind === 'stamp' ? 'Stamp' : 'Sign'}
+      </button>
+      <button
+        type="button"
+        onClick={onToggleBackground}
+        title={asset.backgroundRemoved ? 'Bring back the original background' : 'Remove the background'}
+        className="absolute right-1.5 bottom-1 rounded-full border border-slate-200 bg-white/95 px-1.5 py-px text-[9px] font-bold text-slate-600 shadow-sm hover:text-slate-900 lg:bottom-7 lg:text-[10px]"
+      >
+        {asset.backgroundRemoved ? 'Undo BG' : 'Remove BG'}
       </button>
       <button
         type="button"
@@ -178,23 +189,34 @@ function ActionButtons({
   )
 }
 
-function PdfInput({ onPdfUpload }: Pick<SidebarProps, 'onPdfUpload'>) {
+const DOCUMENT_ACCEPT =
+  'application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.heic,.heif'
+
+function DocumentInput({ onDocumentFiles }: Pick<SidebarProps, 'onDocumentFiles'>) {
   return (
     <input
       className="sr-only"
       type="file"
-      accept="application/pdf,.pdf"
-      onChange={(event) => {
-        const [file] = filesFrom(event)
-        if (file) void onPdfUpload(file)
-      }}
+      multiple
+      accept={DOCUMENT_ACCEPT}
+      onChange={(event) => void onDocumentFiles(filesFrom(event))}
     />
   )
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { pdf, assets, placementCount, canPlace, onPdfUpload, onAssetFiles, onPlace, onRemoveAsset, onSetKind } =
-    props
+  const {
+    pdf,
+    assets,
+    placementCount,
+    canPlace,
+    onDocumentFiles,
+    onAssetFiles,
+    onPlace,
+    onRemoveAsset,
+    onSetKind,
+    onToggleBackground,
+  } = props
 
   return (
     <aside
@@ -209,8 +231,8 @@ export function Sidebar(props: SidebarProps) {
           </p>
         </div>
         <label className="cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold whitespace-nowrap text-slate-800 shadow-sm hover:border-slate-400 lg:hidden">
-          {pdf ? 'Change PDF' : 'Open PDF'}
-          <PdfInput onPdfUpload={onPdfUpload} />
+          {pdf ? 'Change' : 'Open file'}
+          <DocumentInput onDocumentFiles={onDocumentFiles} />
         </label>
         {pdf && (
           <div className="flex gap-2 lg:hidden">
@@ -221,14 +243,14 @@ export function Sidebar(props: SidebarProps) {
       </div>
 
       <label className="hidden cursor-pointer rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow lg:block">
-        <PdfInput onPdfUpload={onPdfUpload} />
+        <DocumentInput onDocumentFiles={onDocumentFiles} />
         <div className="flex items-center gap-3">
           <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">
             PDF
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-slate-900">{pdf ? 'Change PDF' : 'Open PDF'}</div>
-            <div className="truncate text-xs text-slate-500">{pdf?.name ?? 'Choose the document to sign'}</div>
+            <div className="text-sm font-semibold text-slate-900">{pdf ? 'Change document' : 'Open document'}</div>
+            <div className="truncate text-xs text-slate-500">{pdf?.name ?? 'PDF, or a photo/scan (JPEG, PNG…)'}</div>
           </div>
         </div>
       </label>
@@ -249,6 +271,7 @@ export function Sidebar(props: SidebarProps) {
               onPlace={() => onPlace(asset.id)}
               onRemove={() => onRemoveAsset(asset.id)}
               onSetKind={(kind) => onSetKind(asset.id, kind)}
+              onToggleBackground={() => void onToggleBackground(asset.id)}
             />
           ))}
           <label className="grid w-24 shrink-0 cursor-pointer place-items-center rounded-2xl border border-dashed border-slate-300 bg-white/60 p-1.5 text-center text-[11px] lg:p-2 lg:text-xs font-semibold text-slate-600 hover:border-slate-400 lg:min-h-28 lg:w-auto">

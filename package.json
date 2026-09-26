@@ -12,8 +12,9 @@
     "dev": "npm run sync:pdfjs && vite",
     "start:local": "npm run sync:pdfjs && vite --host 127.0.0.1 --open",
     "build": "npm run sync:pdfjs && tsc -b && vite build",
-    "verify": "npm run preflight && npm run test:deps && npm run test:geometry && npm run test:export && npm run build",
-    "preview": "vite preview --host 127.0.0.1 --open"
+    "verify": "npm run preflight && npm run test:deps && npm run test:geometry && npm run test:export && npm run test:background && npm run build",
+    "preview": "vite preview --host 127.0.0.1 --open",
+    "test:background": "node --experimental-strip-types scripts/background-selftest.ts"
   },
   "dependencies": {
     "pdf-lib": "1.17.1",

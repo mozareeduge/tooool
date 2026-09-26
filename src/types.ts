@@ -12,6 +12,9 @@ export interface ImageAsset {
   aspectRatio: number
   sourceType: 'png' | 'svg' | 'raster'
   addedAt: number
+  /** Set when the background was removed: the untouched image, to allow undo. */
+  original?: { dataUrl: string; width: number; height: number }
+  backgroundRemoved?: boolean
 }
 
 export type AssetMap = Record<string, ImageAsset>

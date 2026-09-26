@@ -4,8 +4,8 @@
 
 ## How to use (phone or computer)
 
-1. **Add your stamp and signatures once**: tap **+ Add image** and pick your SVG/PNG files (you can select several at once). They are kept on this device, so next time they are already there. The small **Stamp / Sign** badge on each image only sets its default size; tap it to switch.
-2. **Open the PDF**.
+1. **Add your stamp and signatures once**: tap **+ Add image** and pick your SVG/PNG files (you can select several at once). They are kept on this device, so next time they are already there. The small **Stamp / Sign** badge on each image only sets its default size; tap it to switch. If an image has a background (a photo of a signature on paper, a stamp scan, an SVG with a white box), it is removed automatically and the image is trimmed; **Undo BG** brings the original back, **Remove BG** does it on demand.
+2. **Open the document**: a PDF, or a photo/scan of it (JPEG, PNG, WebP, HEIC on iPhone…). Several images at once become a multi-page PDF, in the order picked.
 3. Go to the page you need, scroll to where it should go, and **tap an image**: it lands in the middle of what you are looking at.
 4. **Drag** to move; pull a **blue corner** to resize (proportions are kept). With an item selected you can **Add to all pages**, **Delete**, or tap **Done**.
 5. Optional: turn on **Black & white** (**B&W** on phones) to get a grayscale copy, e.g. for printers or offices that only accept black & white. It works with or without anything placed, so it is also a plain converter. Pages are stored as crisp 200 dpi grayscale images, so text in that copy is no longer selectable.
