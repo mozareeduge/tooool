@@ -1,4 +1,4 @@
-import { placementForPage, placementToPdfDrawRect, pixelsToNormalized, placementToPixels, resizePlacementForAssetAspect } from '../src/utils/geometry.ts'
+import { findFreeSpot, placementForPage, placementToPdfDrawRect, pixelsToNormalized, placementToPixels, resizePlacementForAssetAspect } from '../src/utils/geometry.ts'
 import type { Placement } from '../src/types.ts'
 
 const EPS = 1e-7
@@ -120,6 +120,28 @@ approx(
   approx(same.x, source.x, 'same-size copy x')
   approx(same.y, source.y, 'same-size copy y')
   approx(same.width, source.width, 'same-size copy width')
+}
+
+// Several items placed on one page must not land on top of each other.
+{
+  const size = { width: 0.3, height: 0.08 }
+  const placed: { x: number; y: number; width: number; height: number }[] = []
+  for (let n = 0; n < 3; n += 1) {
+    const spot = findFreeSpot(size, { x: 0.5, y: 0.5 }, placed)
+    const rect = { ...spot, ...size }
+    for (const other of placed) {
+      const overlap =
+        rect.x < other.x + other.width && other.x < rect.x + rect.width &&
+        rect.y < other.y + other.height && other.y < rect.y + rect.height
+      if (overlap) throw new Error(`free-spot placement ${n} overlaps an earlier item`)
+    }
+    if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > 1 + EPS || rect.y + rect.height > 1 + EPS) {
+      throw new Error(`free-spot placement ${n} falls outside the page`)
+    }
+    placed.push(rect)
+  }
+  approx(placed[0].x, 0.35, 'first item centred x')
+  approx(placed[0].y, 0.46, 'first item centred y')
 }
 
 console.log('[OK] Geometry self-test passed for 0°, 90°, 180°, 270°, and asset replacement.')

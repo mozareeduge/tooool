@@ -111,6 +111,54 @@ export function placementForPage(
   }
 }
 
+type NormalizedRect = Pick<Placement, 'x' | 'y' | 'width' | 'height'>
+
+function overlaps(a: NormalizedRect, b: NormalizedRect, gap: number): boolean {
+  return (
+    a.x < b.x + b.width + gap &&
+    b.x < a.x + a.width + gap &&
+    a.y < b.y + b.height + gap &&
+    b.y < a.y + a.height + gap
+  )
+}
+
+/**
+ * Picks where a new item goes: centred on `center` when that spot is free,
+ * otherwise the nearest free slot below/above/beside it, so several items
+ * placed on one page never land on top of each other.
+ */
+export function findFreeSpot(
+  size: Pick<Placement, 'width' | 'height'>,
+  center: { x: number; y: number },
+  occupied: NormalizedRect[],
+  gap = 0.01,
+): { x: number; y: number } {
+  const clampRect = (cx: number, cy: number) => ({
+    x: clamp(cx - size.width / 2, 0, 1 - size.width),
+    y: clamp(cy - size.height / 2, 0, 1 - size.height),
+  })
+  const stepY = size.height + gap
+  const stepX = size.width + gap
+
+  const candidates: { x: number; y: number }[] = []
+  for (let ring = 0; ring <= 8; ring += 1) {
+    for (const dy of ring === 0 ? [0] : [ring, -ring]) {
+      for (const dx of [0, -1, 1]) {
+        candidates.push(clampRect(center.x + dx * stepX, center.y + dy * stepY))
+      }
+    }
+  }
+
+  const free = candidates.find((spot) =>
+    occupied.every((rect) => !overlaps({ ...spot, ...size }, rect, gap)),
+  )
+  if (free) return free
+
+  // Page is full: fall back to a visible cascade from the centre.
+  const cascade = (occupied.length % 5) * 0.03
+  return clampRect(center.x + cascade, center.y + cascade)
+}
+
 function normalizeRotation(angle: number): 0 | 90 | 180 | 270 {
   const normalized = ((angle % 360) + 360) % 360
   if (normalized === 90 || normalized === 180 || normalized === 270) {

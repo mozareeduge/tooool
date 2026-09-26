@@ -10,7 +10,7 @@ import {
   outputFileName,
   shareBytes,
 } from './utils/exportPdf'
-import { clamp, placementForPage } from './utils/geometry'
+import { clamp, findFreeSpot, placementForPage } from './utils/geometry'
 import { normalizeImageFile } from './utils/image'
 
 const PDF_HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d]
@@ -215,13 +215,11 @@ function App() {
       height = width / asset.aspectRatio / pageAspect
     }
 
-    // Drop it in the middle of what the user is looking at, nudged so repeated
-    // taps don't stack items exactly on top of each other.
-    const onPage = placements.filter((placement) => placement.pageIndex === pageIndex).length
-    const cascade = (onPage % 5) * 0.03
+    // Drop it in the middle of what the user is looking at, or the nearest
+    // empty spot, so a stamp and two signatures never pile up on each other.
+    const onPage = placements.filter((placement) => placement.pageIndex === pageIndex)
     const center = visibleCenterRef.current?.() ?? 0.5
-    const x = clamp((1 - width) / 2 + cascade, 0, 1 - width)
-    const y = clamp(center - height / 2 + cascade, 0, 1 - height)
+    const { x, y } = findFreeSpot({ width, height }, { x: 0.5, y: center }, onPage)
 
     const placement: Placement = { id: newId(), assetId, kind: asset.kind, pageIndex, x, y, width, height }
     setPlacements((current) => [...current, placement])
