@@ -42,7 +42,7 @@ function isImageAsset(value: unknown): value is ImageAsset {
   const asset = value as ImageAsset
   return (
     typeof asset?.id === 'string' &&
-    (asset.kind === 'stamp' || asset.kind === 'signature') &&
+    (asset.kind === 'stamp' || asset.kind === 'signature' || asset.kind === 'image') &&
     typeof asset.dataUrl === 'string' &&
     asset.dataUrl.startsWith('data:image/png;base64,') &&
     Number.isFinite(asset.aspectRatio) &&

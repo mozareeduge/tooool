@@ -309,7 +309,8 @@ export async function normalizeImageFile(
 
   const normalized = isSvg ? await svgToPng(file) : await normalizeRaster(file, isPng)
   // Photos/scans of ink on paper, or artwork with a box behind it: cut it out.
-  const stripped = await stripBackground(normalized.dataUrl)
+  // Plain pictures are kept exactly as they are.
+  const stripped = kind === 'image' ? null : await stripBackground(normalized.dataUrl)
   const final = stripped ?? normalized
 
   return {

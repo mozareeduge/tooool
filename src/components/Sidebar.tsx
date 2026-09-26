@@ -13,7 +13,7 @@ interface SidebarProps {
   onBlackWhiteChange: (value: boolean) => void
   onDocumentFiles: (files: File[]) => Promise<void>
   onToggleBackground: (assetId: string) => Promise<void>
-  onAssetFiles: (files: File[]) => Promise<void>
+  onAssetFiles: (files: File[], kind?: AssetKind) => Promise<void>
   onPlace: (assetId: string) => void
   onRemoveAsset: (assetId: string) => void
   onSetKind: (assetId: string, kind: AssetKind) => void
@@ -26,6 +26,14 @@ const IMAGE_ACCEPT =
 
 const checkerboard =
   'bg-[linear-gradient(45deg,#f1f5f9_25%,transparent_25%),linear-gradient(-45deg,#f1f5f9_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#f1f5f9_75%),linear-gradient(-45deg,transparent_75%,#f1f5f9_75%)] bg-[length:12px_12px] bg-[position:0_0,0_6px,6px_-6px,-6px_0px]'
+
+const KIND_CYCLE: AssetKind[] = ['stamp', 'signature', 'image']
+const KIND_LABEL: Record<AssetKind, string> = { stamp: 'Stamp', signature: 'Sign', image: 'Picture' }
+const KIND_STYLE: Record<AssetKind, string> = {
+  stamp: 'bg-rose-100 text-rose-700',
+  signature: 'bg-sky-100 text-sky-700',
+  image: 'bg-emerald-100 text-emerald-700',
+}
 
 function filesFrom(event: ChangeEvent<HTMLInputElement>): File[] {
   const files = Array.from(event.target.files ?? [])
@@ -48,7 +56,7 @@ function AssetTile({
   onSetKind: (kind: AssetKind) => void
   onToggleBackground: () => void
 }) {
-  const other: AssetKind = asset.kind === 'stamp' ? 'signature' : 'stamp'
+  const next = KIND_CYCLE[(KIND_CYCLE.indexOf(asset.kind) + 1) % KIND_CYCLE.length]
 
   return (
     <div className="relative w-24 shrink-0 lg:w-auto">
@@ -67,13 +75,13 @@ function AssetTile({
       </button>
       <button
         type="button"
-        onClick={() => onSetKind(other)}
-        title={`Mark as ${other}`}
+        onClick={() => onSetKind(next)}
+        title={`Mark as ${KIND_LABEL[next].toLowerCase()}`}
         className={`absolute top-2 left-2 rounded-full px-1.5 py-px text-[9px] lg:top-2.5 lg:left-2.5 lg:px-2 lg:py-0.5 lg:text-[10px] font-bold tracking-wide uppercase shadow-sm ${
-          asset.kind === 'stamp' ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'
+          KIND_STYLE[asset.kind]
         }`}
       >
-        {asset.kind === 'stamp' ? 'Stamp' : 'Sign'}
+        {KIND_LABEL[asset.kind]}
       </button>
       <button
         type="button"
@@ -258,7 +266,7 @@ export function Sidebar(props: SidebarProps) {
       <section>
         <div className="mb-1 hidden items-baseline justify-between gap-2 lg:flex">
           <div className="text-xs font-semibold text-slate-700">
-            Stamps & signatures
+            Stamps, signatures & pictures
             {assets.length > 0 && <span className="ml-1 font-normal text-slate-400">· tap to place</span>}
           </div>
         </div>
@@ -284,8 +292,25 @@ export function Sidebar(props: SidebarProps) {
             />
             <span>
               <span className="block text-xl leading-none text-slate-400">+</span>
-              {assets.length ? 'Add image' : 'Add stamp / signature'}
-              <span className="hidden font-normal text-slate-400 lg:block">SVG or PNG</span>
+              Add stamp / sign
+              <span className="hidden font-normal text-slate-400 lg:block">background removed</span>
+            </span>
+          </label>
+          <label
+            title="Add a photo, logo or any picture exactly as it is (background kept)"
+            className="grid w-24 shrink-0 cursor-pointer place-items-center rounded-2xl border border-dashed border-slate-300 bg-white/60 p-1.5 text-center text-[11px] font-semibold text-slate-600 hover:border-slate-400 lg:min-h-28 lg:w-auto lg:p-2 lg:text-xs"
+          >
+            <input
+              className="sr-only"
+              type="file"
+              multiple
+              accept={IMAGE_ACCEPT}
+              onChange={(event) => void onAssetFiles(filesFrom(event), 'image')}
+            />
+            <span>
+              <span className="block text-xl leading-none text-slate-400">+</span>
+              Add picture
+              <span className="hidden font-normal text-slate-400 lg:block">kept as is</span>
             </span>
           </label>
         </div>

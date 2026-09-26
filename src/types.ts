@@ -1,4 +1,5 @@
-export type AssetKind = 'stamp' | 'signature'
+/** 'image' = a plain picture: kept exactly as it is (no background removal). */
+export type AssetKind = 'stamp' | 'signature' | 'image'
 
 export interface ImageAsset {
   id: string

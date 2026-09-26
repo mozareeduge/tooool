@@ -152,7 +152,7 @@ function App() {
     }
   }
 
-  const handleAssetFiles = async (files: File[]) => {
+  const handleAssetFiles = async (files: File[], kind?: AssetKind) => {
     if (!files.length) return
     const added: ImageAsset[] = []
     const failures: string[] = []
@@ -160,7 +160,7 @@ function App() {
 
     for (const file of files) {
       try {
-        const asset = await normalizeImageFile(file)
+        const asset = await normalizeImageFile(file, kind)
         added.push(asset)
         if (!(await saveStoredAsset(asset))) notSaved = true
       } catch (uploadError) {
@@ -264,15 +264,17 @@ function App() {
     }
 
     const pageAspect = geometry.height / geometry.width
-    let width = asset.kind === 'signature' ? 0.3 : 0.22
+    const picture = asset.kind === 'image'
+    const maxHeight = picture ? 0.35 : 0.2
+    let width = picture ? 0.45 : asset.kind === 'signature' ? 0.3 : 0.22
     let height = width / asset.aspectRatio / pageAspect
 
-    if (height > 0.2) {
-      height = 0.2
+    if (height > maxHeight) {
+      height = maxHeight
       width = height * asset.aspectRatio * pageAspect
     }
-    if (width > 0.5) {
-      width = 0.5
+    if (width > (picture ? 0.6 : 0.5)) {
+      width = picture ? 0.6 : 0.5
       height = width / asset.aspectRatio / pageAspect
     }
 
