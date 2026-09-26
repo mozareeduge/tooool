@@ -8,7 +8,8 @@
 2. **Open the PDF**.
 3. Go to the page you need, scroll to where it should go, and **tap an image**: it lands in the middle of what you are looking at.
 4. **Drag** to move; pull a **blue corner** to resize (proportions are kept). With an item selected you can **Add to all pages**, **Delete**, or tap **Done**.
-5. **Save** downloads the finished PDF. On phones, **Share** sends it straight to Files, WhatsApp, mail, and so on.
+5. Optional: turn on **Black & white** (**B&W** on phones) to get a grayscale copy, e.g. for printers or offices that only accept black & white. It works with or without anything placed, so it is also a plain converter. Pages are stored as crisp 200 dpi grayscale images, so text in that copy is no longer selectable.
+6. **Save** downloads the finished PDF. On phones, **Share** sends it straight to Files, WhatsApp, mail, and so on.
 
 Transparent SVG or PNG works best. WebP, GIF, JPEG and AVIF are also accepted (JPEG has no transparency). Nothing is ever uploaded: the PDF and the images stay in your browser.
 

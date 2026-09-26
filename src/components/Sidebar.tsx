@@ -7,7 +7,10 @@ interface SidebarProps {
   placementCount: number
   canPlace: boolean
   busy: boolean
+  busyLabel: string | null
+  blackWhite: boolean
   shareAvailable: boolean
+  onBlackWhiteChange: (value: boolean) => void
   onPdfUpload: (file: File) => Promise<void>
   onAssetFiles: (files: File[]) => Promise<void>
   onPlace: (assetId: string) => void
@@ -82,18 +85,74 @@ function AssetTile({
   )
 }
 
+function BlackWhiteSwitch({
+  blackWhite,
+  onBlackWhiteChange,
+  compact,
+}: Pick<SidebarProps, 'blackWhite' | 'onBlackWhiteChange'> & { compact: boolean }) {
+  const knob = (
+    <span
+      aria-hidden="true"
+      className={`relative inline-block h-5 w-9 shrink-0 rounded-full transition ${blackWhite ? 'bg-slate-900' : 'bg-slate-300'}`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${blackWhite ? 'translate-x-4' : ''}`}
+      />
+    </span>
+  )
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        role="switch"
+        aria-checked={blackWhite}
+        title="Save as black & white (grayscale)"
+        onClick={() => onBlackWhiteChange(!blackWhite)}
+        className={`rounded-xl border px-2.5 py-2 text-sm font-bold whitespace-nowrap transition ${
+          blackWhite ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-600'
+        }`}
+      >
+        B&W
+      </button>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={blackWhite}
+      onClick={() => onBlackWhiteChange(!blackWhite)}
+      className="mb-3 flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-slate-800">Black & white</span>
+        <span className="block text-[11px] leading-4 text-slate-500">Grayscale copy for printers and offices that require it</span>
+      </span>
+      {knob}
+    </button>
+  )
+}
+
 function ActionButtons({
   pdf,
   placementCount,
   busy,
+  busyLabel,
+  blackWhite,
   shareAvailable,
   onSave,
   onShare,
   compact,
-}: Pick<SidebarProps, 'pdf' | 'placementCount' | 'busy' | 'shareAvailable' | 'onSave' | 'onShare'> & {
+}: Pick<
+  SidebarProps,
+  'pdf' | 'placementCount' | 'busy' | 'busyLabel' | 'blackWhite' | 'shareAvailable' | 'onSave' | 'onShare'
+> & {
   compact: boolean
 }) {
-  const disabled = !pdf || placementCount === 0 || busy
+  // A black & white copy is useful on its own, even with nothing placed.
+  const disabled = !pdf || (placementCount === 0 && !blackWhite) || busy
   const size = compact ? 'px-3 py-2 text-sm' : 'w-full px-3 py-3 text-sm'
   return (
     <>
@@ -103,7 +162,7 @@ function ActionButtons({
         disabled={disabled}
         onClick={() => void onSave()}
       >
-        {busy ? 'Working…' : compact ? 'Save' : 'Save final PDF'}
+        {busy ? (compact ? '…' : (busyLabel ?? 'Working…')) : compact ? 'Save' : blackWhite ? 'Save black & white PDF' : 'Save final PDF'}
       </button>
       {shareAvailable && (
         <button
@@ -143,7 +202,7 @@ export function Sidebar(props: SidebarProps) {
       className="sticky top-0 z-40 flex w-full flex-col gap-2 border-b border-slate-200 bg-slate-50/95 p-3 backdrop-blur lg:static lg:h-screen lg:w-80 lg:shrink-0 lg:gap-4 lg:overflow-y-auto lg:border-r lg:border-b-0 lg:p-4"
     >
       <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
+        <div className={`min-w-0 flex-1 ${pdf ? 'invisible lg:visible' : ''}`}>
           <div className="truncate text-[15px] font-bold tracking-tight text-slate-950 lg:text-lg">PDF Stamp & Sign</div>
           <p className="hidden text-xs leading-5 text-slate-500 lg:block">
             Everything stays on your device. Nothing is uploaded.
@@ -155,6 +214,7 @@ export function Sidebar(props: SidebarProps) {
         </label>
         {pdf && (
           <div className="flex gap-2 lg:hidden">
+            <BlackWhiteSwitch {...props} compact />
             <ActionButtons {...props} compact />
           </div>
         )}
@@ -213,6 +273,7 @@ export function Sidebar(props: SidebarProps) {
           <span>Placed items</span>
           <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{placementCount}</span>
         </div>
+        <BlackWhiteSwitch {...props} compact={false} />
         <ActionButtons {...props} compact={false} />
         <p className="mt-2 text-[11px] leading-4 text-slate-400">
           Adds your images onto the pages. It is not a certificate-based digital signature.

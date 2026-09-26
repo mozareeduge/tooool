@@ -1,20 +1,11 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, type MutableRefObject } from 'react'
-import { Document, Page, pdfjs } from 'react-pdf'
+import { Document, Page } from 'react-pdf'
 import type { AssetMap, PageGeometry, Placement } from '../types'
 import { useElementSize } from '../hooks/useElementSize'
 import { Pagination } from './Pagination'
 import { PdfErrorBoundary } from './PdfErrorBoundary'
 import { PlacementLayer } from './PlacementLayer'
-import pdfWorkerUrl from '../pdf-worker.ts?worker&url'
-
-pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
-
-const pdfjsAssetBase = `${import.meta.env.BASE_URL}pdfjs/`
-const documentOptions = {
-  cMapUrl: `${pdfjsAssetBase}cmaps/`,
-  wasmUrl: `${pdfjsAssetBase}wasm/`,
-  standardFontDataUrl: `${pdfjsAssetBase}standard_fonts/`,
-}
+import { documentOptions } from '../utils/pdfjs'
 
 /** Returns the normalized (0..1) vertical centre of the part of the page the user can currently see. */
 export type VisibleCenterGetter = () => number | null

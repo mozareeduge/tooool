@@ -11,6 +11,7 @@ import {
   shareBytes,
 } from './utils/exportPdf'
 import { clamp, findFreeSpot, placementForPage } from './utils/geometry'
+import { convertToGrayscale } from './utils/grayscale'
 import { normalizeImageFile } from './utils/image'
 
 const PDF_HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d]
@@ -44,6 +45,8 @@ function App() {
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [busyLabel, setBusyLabel] = useState<string | null>(null)
+  const [blackWhite, setBlackWhite] = useState(false)
   const [shareAvailable] = useState(canShareFiles)
   const visibleCenterRef = useRef<VisibleCenterGetter | null>(null)
   const builtRef = useRef<BuiltPdf | null>(null)
@@ -268,14 +271,25 @@ function App() {
     setSelectedId(null)
   }
 
-  const buildKey = () => `${pdf?.objectUrl}|${JSON.stringify(placements)}|${assetList.map((a) => a.id).join(',')}`
+  const buildKey = () =>
+    `${pdf?.objectUrl}|${blackWhite}|${JSON.stringify(placements)}|${assetList.map((a) => a.id).join(',')}`
 
   const buildPdf = async (): Promise<BuiltPdf | null> => {
     if (!pdf) return null
     const key = buildKey()
     if (builtRef.current?.key === key) return builtRef.current
-    const bytes = await buildFinalPdfBytes({ pdfBytes: pdf.bytes, placements, assets })
-    builtRef.current = { key, bytes, filename: outputFileName(pdf.name) }
+    let bytes = placements.length
+      ? await buildFinalPdfBytes({ pdfBytes: pdf.bytes, placements, assets })
+      : pdf.bytes
+    let filename = outputFileName(pdf.name)
+    if (blackWhite) {
+      bytes = await convertToGrayscale(bytes, (page, total) =>
+        setBusyLabel(`Converting page ${page} of ${total}…`),
+      )
+      filename = filename.replace(/(-stamped)?\.pdf$/, (_, stamped) => `${stamped ?? ''}-bw.pdf`)
+      if (!placements.length) filename = filename.replace(/-stamped-bw\.pdf$/, '-bw.pdf')
+    }
+    builtRef.current = { key, bytes, filename }
     return builtRef.current
   }
 
@@ -294,6 +308,7 @@ function App() {
       showError(exportErrorMessage(exportError))
     } finally {
       setBusy(false)
+      setBusyLabel(null)
     }
   }
 
@@ -315,6 +330,7 @@ function App() {
       }
     } finally {
       setBusy(false)
+      setBusyLabel(null)
     }
   }
 
@@ -326,6 +342,9 @@ function App() {
         placementCount={placements.length}
         canPlace={canPlace}
         busy={busy}
+        busyLabel={busyLabel}
+        blackWhite={blackWhite}
+        onBlackWhiteChange={setBlackWhite}
         shareAvailable={shareAvailable}
         onPdfUpload={handlePdfUpload}
         onAssetFiles={handleAssetFiles}
