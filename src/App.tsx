@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
-import { PdfViewer } from './components/PdfViewer'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { PdfViewer, type VisibleCenterGetter } from './components/PdfViewer'
 import { Sidebar } from './components/Sidebar'
-import type { AssetKind, ImageAsset, PageGeometry, PdfSource, Placement } from './types'
-import { exportFinalPdf } from './utils/exportPdf'
-import { clamp, resizePlacementForAssetAspect } from './utils/geometry'
+import type { AssetKind, AssetMap, ImageAsset, PageGeometry, PdfSource, Placement } from './types'
+import { deleteStoredAsset, loadStoredAssets, saveStoredAsset } from './utils/assetStore'
+import {
+  buildFinalPdfBytes,
+  canShareFiles,
+  downloadBytes,
+  outputFileName,
+  shareBytes,
+} from './utils/exportPdf'
+import { clamp, placementForPage } from './utils/geometry'
 import { normalizeImageFile } from './utils/image'
-
 
 const PDF_HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d]
 
@@ -21,9 +27,15 @@ function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 }
 
+interface BuiltPdf {
+  key: string
+  bytes: Uint8Array
+  filename: string
+}
+
 function App() {
   const [pdf, setPdf] = useState<PdfSource | null>(null)
-  const [assets, setAssets] = useState<Partial<Record<AssetKind, ImageAsset>>>({})
+  const [assetList, setAssetList] = useState<ImageAsset[]>([])
   const [placements, setPlacements] = useState<Placement[]>([])
   const [pageCount, setPageCount] = useState(0)
   const [pageIndex, setPageIndex] = useState(0)
@@ -31,13 +43,41 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [shareAvailable] = useState(canShareFiles)
+  const visibleCenterRef = useRef<VisibleCenterGetter | null>(null)
+  const builtRef = useRef<BuiltPdf | null>(null)
+
+  const assets = useMemo<AssetMap>(
+    () => Object.fromEntries(assetList.map((asset) => [asset.id, asset])),
+    [assetList],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void loadStoredAssets().then((stored) => {
+      if (cancelled || stored.length === 0) return
+      setAssetList((current) => {
+        const known = new Set(current.map((asset) => asset.id))
+        return [...stored.filter((asset) => !known.has(asset.id)), ...current]
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     return () => {
       if (pdf?.objectUrl) URL.revokeObjectURL(pdf.objectUrl)
     }
   }, [pdf])
+
+  useEffect(() => {
+    if (!status) return
+    const timer = window.setTimeout(() => setStatus(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [status])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -48,6 +88,7 @@ function App() {
         setPlacements((current) => current.filter((item) => item.id !== selectedId))
         setSelectedId(null)
       }
+      if (event.key === 'Escape') setSelectedId(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -55,33 +96,28 @@ function App() {
 
   const canPlace = Boolean(pdf && pageGeometry[pageIndex])
 
-  const placementsOnCurrentPage = useMemo(
-    () => placements.filter((placement) => placement.pageIndex === pageIndex).length,
-    [placements, pageIndex],
-  )
-
-  const clearMessages = () => {
-    setError(null)
+  const showError = (message: string) => {
     setStatus(null)
+    setError(message)
+  }
+  const showStatus = (message: string) => {
+    setError(null)
+    setStatus(message)
   }
 
   const handlePdfUpload = async (file: File) => {
-    clearMessages()
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      setError('Please select a PDF file.')
+      showError('Please choose a PDF file.')
       return
     }
 
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
       if (!hasPdfHeader(bytes)) {
-        throw new Error('The selected file does not contain a valid PDF header.')
+        throw new Error('This file is not a valid PDF.')
       }
 
-      const blobBytes = bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-      ) as ArrayBuffer
+      const blobBytes = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
       const objectUrl = URL.createObjectURL(new Blob([blobBytes], { type: 'application/pdf' }))
 
       setPdf({ name: file.name, bytes, objectUrl })
@@ -90,91 +126,142 @@ function App() {
       setPageCount(0)
       setPageIndex(0)
       setSelectedId(null)
-      setStatus('PDF loaded. Add a stamp or signature.')
+      builtRef.current = null
+      setError(null)
+      setStatus(assetList.length ? 'PDF opened. Tap a stamp or signature to place it.' : 'PDF opened. Now add your stamp or signature.')
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'Could not read the PDF.')
+      showError(uploadError instanceof Error ? uploadError.message : 'Could not read the PDF.')
     }
   }
 
-  const handleAssetUpload = async (kind: AssetKind, file: File) => {
-    clearMessages()
-    try {
-      const asset = await normalizeImageFile(file, kind)
+  const handleAssetFiles = async (files: File[]) => {
+    if (!files.length) return
+    const added: ImageAsset[] = []
+    const failures: string[] = []
+    let notSaved = false
 
-      // Preserve each existing placement's visual width when replacing an asset,
-      // but recompute height for the new aspect ratio so previously placed items
-      // never become stretched/squashed. Placements can only exist on pages whose
-      // geometry was loaded, so the normal path always has a page aspect ratio.
-      setPlacements((current) =>
-        current.map((placement) => {
-          if (placement.kind !== kind) return placement
-          const geometry = pageGeometry[placement.pageIndex]
-          if (!geometry?.width || !geometry?.height) return placement
+    for (const file of files) {
+      try {
+        const asset = await normalizeImageFile(file)
+        added.push(asset)
+        if (!(await saveStoredAsset(asset))) notSaved = true
+      } catch (uploadError) {
+        failures.push(uploadError instanceof Error ? uploadError.message : `Could not read ${file.name}.`)
+      }
+    }
 
-          return resizePlacementForAssetAspect(placement, geometry, asset.aspectRatio)
-        }),
+    if (added.length) setAssetList((current) => [...current, ...added])
+    if (failures.length) {
+      showError(failures.join(' '))
+    } else if (notSaved) {
+      showError('Added, but this browser would not store it: you will need to add it again next time.')
+    } else {
+      showStatus(
+        `${added.length === 1 ? `${added[0].name} added` : `${added.length} images added`} and kept on this device.${
+          pdf ? ' Tap it to place it.' : ''
+        }`,
       )
-
-      setAssets((current) => ({ ...current, [kind]: asset }))
-      setStatus(
-        asset.sourceType === 'svg'
-          ? `${kind === 'stamp' ? 'Stamp' : 'Signature'} SVG converted to high-resolution PNG.`
-          : `${kind === 'stamp' ? 'Stamp' : 'Signature'} loaded.`,
-      )
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'Could not read this image.')
     }
   }
 
-  const addPlacement = (kind: AssetKind) => {
-    clearMessages()
-    const asset = assets[kind]
+  const setAssetKind = (assetId: string, kind: AssetKind) => {
+    setAssetList((current) =>
+      current.map((asset) => {
+        if (asset.id !== assetId) return asset
+        const updated = { ...asset, kind }
+        void saveStoredAsset(updated)
+        return updated
+      }),
+    )
+    setPlacements((current) =>
+      current.map((placement) => (placement.assetId === assetId ? { ...placement, kind } : placement)),
+    )
+  }
+
+  const removeAsset = (assetId: string) => {
+    const asset = assets[assetId]
+    if (!asset) return
+    const uses = placements.filter((placement) => placement.assetId === assetId).length
+    const question = uses
+      ? `Remove "${asset.name}"? It is placed ${uses} time${uses === 1 ? '' : 's'} in this PDF; those will be removed too.`
+      : `Remove "${asset.name}" from this device?`
+    if (!window.confirm(question)) return
+
+    setAssetList((current) => current.filter((item) => item.id !== assetId))
+    setPlacements((current) => current.filter((placement) => placement.assetId !== assetId))
+    if (selectedId && placements.some((p) => p.id === selectedId && p.assetId === assetId)) setSelectedId(null)
+    void deleteStoredAsset(assetId)
+  }
+
+  const placeAsset = (assetId: string) => {
+    const asset = assets[assetId]
     const geometry = pageGeometry[pageIndex]
-    if (!asset || !geometry) return
+    if (!asset) return
+    if (!pdf || !geometry) {
+      showError(pdf ? 'The page is still loading. Try again in a moment.' : 'Open a PDF first, then tap the image to place it.')
+      return
+    }
 
     const pageAspect = geometry.height / geometry.width
-    let width = kind === 'signature' ? 0.28 : 0.18
+    let width = asset.kind === 'signature' ? 0.3 : 0.22
     let height = width / asset.aspectRatio / pageAspect
 
-    if (height > 0.22) {
-      height = 0.22
+    if (height > 0.2) {
+      height = 0.2
       width = height * asset.aspectRatio * pageAspect
     }
-    if (width > 0.45) {
-      width = 0.45
+    if (width > 0.5) {
+      width = 0.5
       height = width / asset.aspectRatio / pageAspect
     }
 
-    const cascade = Math.min(placementsOnCurrentPage, 5) * 0.025
+    // Drop it in the middle of what the user is looking at, nudged so repeated
+    // taps don't stack items exactly on top of each other.
+    const onPage = placements.filter((placement) => placement.pageIndex === pageIndex).length
+    const cascade = (onPage % 5) * 0.03
+    const center = visibleCenterRef.current?.() ?? 0.5
     const x = clamp((1 - width) / 2 + cascade, 0, 1 - width)
-    const y = clamp(0.08 + cascade, 0, 1 - height)
+    const y = clamp(center - height / 2 + cascade, 0, 1 - height)
 
-    const placement: Placement = {
-      id: newId(),
-      kind,
-      pageIndex,
-      x,
-      y,
-      width,
-      height,
-    }
-
+    const placement: Placement = { id: newId(), assetId, kind: asset.kind, pageIndex, x, y, width, height }
     setPlacements((current) => [...current, placement])
     setSelectedId(placement.id)
+    setError(null)
   }
 
-  const updatePlacement = (
-    id: string,
-    patch: Pick<Placement, 'x' | 'y' | 'width' | 'height'>,
-  ) => {
-    setPlacements((current) =>
-      current.map((placement) => (placement.id === id ? { ...placement, ...patch } : placement)),
-    )
+  const updatePlacement = (id: string, patch: Pick<Placement, 'x' | 'y' | 'width' | 'height'>) => {
+    setPlacements((current) => current.map((placement) => (placement.id === id ? { ...placement, ...patch } : placement)))
   }
 
   const deletePlacement = (id: string) => {
     setPlacements((current) => current.filter((placement) => placement.id !== id))
     if (selectedId === id) setSelectedId(null)
+  }
+
+  const copyToAllPages = (id: string) => {
+    const source = placements.find((placement) => placement.id === id)
+    const asset = source && assets[source.assetId]
+    const sourceGeometry = source && pageGeometry[source.pageIndex]
+    if (!source || !asset || !sourceGeometry) return
+
+    const copies: Placement[] = []
+    for (let index = 0; index < pageCount; index += 1) {
+      if (index === source.pageIndex) continue
+      const alreadyThere = placements.some(
+        (placement) =>
+          placement.pageIndex === index &&
+          placement.assetId === source.assetId &&
+          Math.abs(placement.x - source.x) < 0.005 &&
+          Math.abs(placement.y - source.y) < 0.005,
+      )
+      if (alreadyThere) continue
+      const geometry = pageGeometry[index]
+      if (!geometry) continue
+      copies.push(placementForPage(source, sourceGeometry, geometry, asset.aspectRatio, index, newId()))
+    }
+
+    setPlacements((current) => [...current, ...copies])
+    showStatus(copies.length ? `Placed on ${copies.length} more page${copies.length === 1 ? '' : 's'}.` : 'Already on every page.')
   }
 
   const changePage = (nextPageIndex: number) => {
@@ -183,27 +270,53 @@ function App() {
     setSelectedId(null)
   }
 
-  const handleExport = async () => {
-    clearMessages()
-    if (!pdf) return
+  const buildKey = () => `${pdf?.objectUrl}|${JSON.stringify(placements)}|${assetList.map((a) => a.id).join(',')}`
 
-    setExporting(true)
+  const buildPdf = async (): Promise<BuiltPdf | null> => {
+    if (!pdf) return null
+    const key = buildKey()
+    if (builtRef.current?.key === key) return builtRef.current
+    const bytes = await buildFinalPdfBytes({ pdfBytes: pdf.bytes, placements, assets })
+    builtRef.current = { key, bytes, filename: outputFileName(pdf.name) }
+    return builtRef.current
+  }
+
+  const exportErrorMessage = (exportError: unknown) =>
+    exportError instanceof Error ? exportError.message : 'Saving failed. The PDF may be encrypted or unsupported.'
+
+  const handleSave = async () => {
+    setSelectedId(null)
+    setBusy(true)
     try {
-      await exportFinalPdf({
-        pdfBytes: pdf.bytes,
-        originalName: pdf.name,
-        placements,
-        assets,
-      })
-      setStatus(`Exported ${placements.length} placed item${placements.length === 1 ? '' : 's'}.`)
+      const built = await buildPdf()
+      if (!built) return
+      downloadBytes(built.bytes, built.filename)
+      showStatus(`Saved ${built.filename}.`)
     } catch (exportError) {
-      setError(
-        exportError instanceof Error
-          ? exportError.message
-          : 'Export failed. The PDF may be encrypted or unsupported.',
-      )
+      showError(exportErrorMessage(exportError))
     } finally {
-      setExporting(false)
+      setBusy(false)
+    }
+  }
+
+  const handleShare = async () => {
+    setSelectedId(null)
+    const cached = builtRef.current?.key === buildKey()
+    setBusy(true)
+    try {
+      const built = await buildPdf()
+      if (!built) return
+      await shareBytes(built.bytes, built.filename)
+    } catch (exportError) {
+      // Some browsers only open the share sheet straight from a tap. The file
+      // is built now, so a second tap shares instantly.
+      if (!cached && exportError instanceof DOMException && exportError.name === 'NotAllowedError') {
+        showStatus('Your PDF is ready. Tap Share again.')
+      } else {
+        showError(exportErrorMessage(exportError))
+      }
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -211,14 +324,18 @@ function App() {
     <div className="min-h-screen bg-slate-100 text-slate-900 lg:flex lg:h-screen lg:overflow-hidden">
       <Sidebar
         pdf={pdf}
-        assets={assets}
+        assets={assetList}
         placementCount={placements.length}
         canPlace={canPlace}
-        exporting={exporting}
+        busy={busy}
+        shareAvailable={shareAvailable}
         onPdfUpload={handlePdfUpload}
-        onAssetUpload={handleAssetUpload}
-        onAdd={addPlacement}
-        onExport={handleExport}
+        onAssetFiles={handleAssetFiles}
+        onPlace={placeAsset}
+        onRemoveAsset={removeAsset}
+        onSetKind={setAssetKind}
+        onSave={handleSave}
+        onShare={handleShare}
       />
 
       <PdfViewer
@@ -227,12 +344,15 @@ function App() {
         pageCount={pageCount}
         placements={placements}
         assets={assets}
+        hasAssets={assetList.length > 0}
         selectedId={selectedId}
+        visibleCenterRef={visibleCenterRef}
         onSelect={setSelectedId}
         onPageChange={changePage}
-        onDocumentLoad={(count) => {
-          setPageCount(count)
-          setPageIndex((current) => clamp(current, 0, Math.max(0, count - 1)))
+        onDocumentLoad={(pages) => {
+          setPageCount(pages.length)
+          setPageGeometry(Object.fromEntries(pages.map((geometry, index) => [index, geometry])))
+          setPageIndex((current) => clamp(current, 0, Math.max(0, pages.length - 1)))
           setError(null)
         }}
         onPageGeometry={(index, geometry) =>
@@ -244,23 +364,31 @@ function App() {
         }
         onPlacementChange={updatePlacement}
         onPlacementDelete={deletePlacement}
-        onError={setError}
+        onCopyToAllPages={copyToAllPages}
+        onError={showError}
       />
 
       {(error || status) && (
-        <div className="fixed right-4 bottom-24 z-50 max-w-sm lg:bottom-5">
+        <div
+          className={`pointer-events-none fixed inset-x-3 z-50 flex justify-center lg:inset-x-auto lg:right-5 lg:bottom-5 ${
+            // Phones: sit above the floating page/selection bars, never over the toolbar buttons.
+            selectedId ? 'bottom-36' : pageCount > 1 ? 'bottom-20' : 'bottom-4'
+          }`}
+        >
           <div
-            className={`rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur ${
-              error
-                ? 'border-red-200 bg-red-50/95 text-red-800'
-                : 'border-emerald-200 bg-emerald-50/95 text-emerald-800'
+            role={error ? 'alert' : 'status'}
+            className={`pointer-events-auto w-full max-w-sm rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur ${
+              error ? 'border-red-200 bg-red-50/95 text-red-800' : 'border-emerald-200 bg-emerald-50/95 text-emerald-800'
             }`}
           >
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1 leading-5">{error ?? status}</div>
               <button
-                className="shrink-0 rounded px-1 text-current/60 hover:text-current"
-                onClick={clearMessages}
+                className="-my-1 shrink-0 rounded px-2 py-1 text-current/60 hover:text-current"
+                onClick={() => {
+                  setError(null)
+                  setStatus(null)
+                }}
                 aria-label="Dismiss message"
               >
                 ×

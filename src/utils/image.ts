@@ -1,6 +1,7 @@
 import type { AssetKind, ImageAsset } from '../types'
 
 const SVG_RASTER_LONG_EDGE = 2048
+const RASTER_MAX_EDGE = 2048
 const SVG_MAX_EDGE = 4096
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 const SAFE_EMBEDDED_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp);base64,/i
@@ -115,7 +116,7 @@ function validateLocalSvg(svgDocument: Document): SVGSVGElement {
   }
 
   if (svgDocument.doctype) {
-    throw new Error('SVG files with a DOCTYPE are not allowed.')
+    throw new Error('SVG files that declare entities are not allowed.')
   }
 
   if (svgDocument.querySelector('script, foreignObject')) {
@@ -153,14 +154,23 @@ function validateLocalSvg(svgDocument: Document): SVGSVGElement {
   return svg
 }
 
+/**
+ * Illustrator and older editors emit `<!DOCTYPE svg PUBLIC ... "...svg11.dtd">`.
+ * That form is inert, so drop it; a DOCTYPE with an internal subset (`[...]`,
+ * i.e. entity definitions) is left in place and rejected by the caller.
+ */
+function stripPlainDoctype(source: string): string {
+  return source.replace(/<!doctype\s+svg\b[^[>]*>/i, '')
+}
+
 async function svgToPng(file: File): Promise<{
   dataUrl: string
   width: number
   height: number
 }> {
-  const source = await file.text()
-  if (/<!doctype\b/i.test(source)) {
-    throw new Error('SVG files with a DOCTYPE are not allowed.')
+  const source = stripPlainDoctype(await file.text())
+  if (/<!doctype\b/i.test(source) || /<!entity\b/i.test(source)) {
+    throw new Error('SVG files that declare entities are not allowed.')
   }
 
   const svgDocument = new DOMParser().parseFromString(source, 'image/svg+xml')
@@ -185,67 +195,97 @@ async function svgToPng(file: File): Promise<{
 
   try {
     const image = await loadImage(blobUrl)
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Canvas 2D is unavailable in this browser.')
-
-    context.clearRect(0, 0, width, height)
-    context.drawImage(image, 0, 0, width, height)
-
-    return {
-      dataUrl: canvas.toDataURL('image/png'),
-      width,
-      height,
-    }
+    return { dataUrl: canvasToPng(image, width, height), width, height }
   } finally {
     URL.revokeObjectURL(blobUrl)
   }
 }
 
-async function normalizePng(file: File): Promise<{
+function canvasToPng(
+  image: CanvasImageSource,
+  width: number,
+  height: number,
+): string {
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Canvas 2D is unavailable in this browser.')
+  context.clearRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+  return canvas.toDataURL('image/png')
+}
+
+/**
+ * PNG files are kept byte-for-byte when they are a sensible size. Very large
+ * PNGs and every other browser-decodable format (WebP, GIF, JPEG, AVIF, HEIC on
+ * Safari, ...) are redrawn to a transparent PNG no larger than RASTER_MAX_EDGE.
+ */
+async function normalizeRaster(file: File, isPng: boolean): Promise<{
   dataUrl: string
   width: number
   height: number
 }> {
-  await assertPngSignature(file)
-  const dataUrl = await fileToDataUrl(file)
-  const image = await loadImage(dataUrl)
+  if (isPng) await assertPngSignature(file)
 
-  if (!image.naturalWidth || !image.naturalHeight) {
-    throw new Error('The PNG has invalid dimensions.')
+  const sourceUrl = await fileToDataUrl(file)
+  let image: HTMLImageElement
+  try {
+    image = await loadImage(sourceUrl)
+  } catch {
+    throw new Error(`This browser cannot open ${file.name}. Use PNG or SVG.`)
   }
 
-  return {
-    dataUrl,
-    width: image.naturalWidth,
-    height: image.naturalHeight,
+  const naturalWidth = image.naturalWidth
+  const naturalHeight = image.naturalHeight
+  if (!naturalWidth || !naturalHeight) {
+    throw new Error('The image has invalid dimensions.')
   }
+
+  const scale = Math.min(1, RASTER_MAX_EDGE / Math.max(naturalWidth, naturalHeight))
+  if (isPng && scale === 1) {
+    return { dataUrl: sourceUrl, width: naturalWidth, height: naturalHeight }
+  }
+
+  const width = Math.max(1, Math.round(naturalWidth * scale))
+  const height = Math.max(1, Math.round(naturalHeight * scale))
+  return { dataUrl: canvasToPng(image, width, height), width, height }
+}
+
+/** Guess the label from the file name; the user can switch it afterwards. */
+export function guessAssetKind(fileName: string): AssetKind {
+  return /stamp|seal|mohr|\u0645\u0647\u0631/i.test(fileName) ? 'stamp' : 'signature'
+}
+
+function newAssetId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 }
 
 export async function normalizeImageFile(
   file: File,
-  kind: AssetKind,
+  kind: AssetKind = guessAssetKind(file.name),
 ): Promise<ImageAsset> {
   const name = file.name.toLowerCase()
   const isSvg = file.type === 'image/svg+xml' || name.endsWith('.svg')
   const isPng = file.type === 'image/png' || name.endsWith('.png')
+  const isImage = isSvg || file.type.startsWith('image/') ||
+    /\.(png|jpe?g|webp|gif|avif|bmp|heic|heif)$/.test(name)
 
-  if (!isSvg && !isPng) {
-    throw new Error('Only PNG and SVG images are supported.')
+  if (!isImage) {
+    throw new Error(`${file.name} is not an image. Use PNG or SVG (transparent background).`)
   }
 
-  const normalized = isSvg ? await svgToPng(file) : await normalizePng(file)
+  const normalized = isSvg ? await svgToPng(file) : await normalizeRaster(file, isPng)
 
   return {
+    id: newAssetId(),
     kind,
     name: file.name,
     dataUrl: normalized.dataUrl,
     width: normalized.width,
     height: normalized.height,
     aspectRatio: normalized.width / normalized.height,
-    sourceType: isSvg ? 'svg' : 'png',
+    sourceType: isSvg ? 'svg' : isPng ? 'png' : 'raster',
+    addedAt: Date.now(),
   }
 }

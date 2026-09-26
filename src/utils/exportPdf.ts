@@ -1,17 +1,17 @@
 import { degrees, PDFDocument, type PDFImage } from 'pdf-lib'
-import type { AssetKind, ImageAsset, Placement } from '../types'
+import type { AssetMap, Placement } from '../types'
 import { placementToPdfDrawRect } from './geometry.ts'
 
 interface ExportArgs {
   pdfBytes: Uint8Array
   originalName: string
   placements: Placement[]
-  assets: Partial<Record<AssetKind, ImageAsset>>
+  assets: AssetMap
 }
 
 type BuildArgs = Omit<ExportArgs, 'originalName'>
 
-function outputFileName(originalName: string): string {
+export function outputFileName(originalName: string): string {
   const base = originalName.replace(/\.pdf$/i, '') || 'document'
   return `${base}-stamped.pdf`
 }
@@ -23,7 +23,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer
 }
 
-function downloadBytes(bytes: Uint8Array, filename: string): void {
+export function downloadBytes(bytes: Uint8Array, filename: string): void {
   const blob = new Blob([toArrayBuffer(bytes)], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -71,22 +71,23 @@ export async function buildFinalPdfBytes({
 }: BuildArgs): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(pdfBytes.slice())
   const pages = pdfDoc.getPages()
-  const embedded = new Map<AssetKind, PDFImage>()
+  const embedded = new Map<string, PDFImage>()
 
   for (const placement of placements) validatePlacement(placement, pages.length)
 
-  const neededKinds = new Set(placements.map((placement) => placement.kind))
-  for (const kind of neededKinds) {
-    const asset = assets[kind]
+  // Embed each image once, however many times it is placed.
+  for (const placement of placements) {
+    if (embedded.has(placement.assetId)) continue
+    const asset = assets[placement.assetId]
     if (!asset) {
-      throw new Error(`A placed ${kind} no longer has an uploaded image.`)
+      throw new Error(`A placed ${placement.kind} no longer has an uploaded image.`)
     }
-    embedded.set(kind, await pdfDoc.embedPng(asset.dataUrl))
+    embedded.set(placement.assetId, await pdfDoc.embedPng(asset.dataUrl))
   }
 
   for (const placement of placements) {
     const page = pages[placement.pageIndex]
-    const image = embedded.get(placement.kind)
+    const image = embedded.get(placement.assetId)
     if (!image) throw new Error(`Could not embed the ${placement.kind} image.`)
 
     const rect = placementToPdfDrawRect(placement, page)
@@ -102,12 +103,23 @@ export async function buildFinalPdfBytes({
   return pdfDoc.save()
 }
 
-export async function exportFinalPdf({
-  pdfBytes,
-  originalName,
-  placements,
-  assets,
-}: ExportArgs): Promise<void> {
-  const output = await buildFinalPdfBytes({ pdfBytes, placements, assets })
-  downloadBytes(output, outputFileName(originalName))
+/** Share sheet (phones): lets the result go straight to Files, WhatsApp, mail, ... */
+export function canShareFiles(): boolean {
+  try {
+    const probe = new File([new Uint8Array(1)], 'probe.pdf', { type: 'application/pdf' })
+    return typeof navigator.share === 'function' && navigator.canShare?.({ files: [probe] }) === true
+  } catch {
+    return false
+  }
+}
+
+export async function shareBytes(bytes: Uint8Array, filename: string): Promise<void> {
+  const file = new File([toArrayBuffer(bytes)], filename, { type: 'application/pdf' })
+  try {
+    await navigator.share({ files: [file], title: filename })
+  } catch (error) {
+    // Closing the share sheet is not an error worth reporting.
+    if (error instanceof DOMException && error.name === 'AbortError') return
+    throw error
+  }
 }

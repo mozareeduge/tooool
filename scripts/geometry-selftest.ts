@@ -1,4 +1,4 @@
-import { placementToPdfDrawRect, pixelsToNormalized, placementToPixels, resizePlacementForAssetAspect } from '../src/utils/geometry.ts'
+import { placementForPage, placementToPdfDrawRect, pixelsToNormalized, placementToPixels, resizePlacementForAssetAspect } from '../src/utils/geometry.ts'
 import type { Placement } from '../src/types.ts'
 
 const EPS = 1e-7
@@ -8,6 +8,7 @@ const approx = (a: number, b: number, label: string) => {
 
 const placement: Placement = {
   id: 'test',
+  assetId: 'asset',
   kind: 'stamp',
   pageIndex: 0,
   x: 0.1,
@@ -101,5 +102,24 @@ approx(
   2,
   'replacement asset aspect ratio',
 )
+
+// Copying to a landscape page keeps physical size and aspect ratio.
+{
+  const portrait = { width: 595, height: 842 }
+  const landscape = { width: 842, height: 595 }
+  const aspect = 2.5
+  const source: Placement = { ...placement, x: 0.6, y: 0.85, width: 0.3, height: (0.3 * 595) / aspect / 842 }
+  const copy = placementForPage(source, portrait, landscape, aspect, 1, 'copy')
+  approx(copy.width * landscape.width, source.width * portrait.width, 'copy physical width')
+  approx((copy.width * landscape.width) / (copy.height * landscape.height), aspect, 'copy aspect')
+  if (copy.pageIndex !== 1 || copy.id !== 'copy') throw new Error('copy identity not applied')
+  if (copy.x < 0 || copy.y < 0 || copy.x + copy.width > 1 + EPS || copy.y + copy.height > 1 + EPS) {
+    throw new Error('copy falls outside the target page')
+  }
+  const same = placementForPage(source, portrait, portrait, aspect, 2, 'same')
+  approx(same.x, source.x, 'same-size copy x')
+  approx(same.y, source.y, 'same-size copy y')
+  approx(same.width, source.width, 'same-size copy width')
+}
 
 console.log('[OK] Geometry self-test passed for 0°, 90°, 180°, 270°, and asset replacement.')

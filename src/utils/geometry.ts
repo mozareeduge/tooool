@@ -79,6 +79,38 @@ export function resizePlacementForAssetAspect(
   return { ...placement, x, y, width, height }
 }
 
+/**
+ * Copies a placement onto another page so it keeps the same physical size
+ * (PDF points) and the same relative position, without distorting the image,
+ * even when the pages differ in size or orientation.
+ */
+export function placementForPage(
+  source: Placement,
+  sourceGeometry: PageGeometry,
+  target: PageGeometry,
+  assetAspectRatio: number,
+  pageIndex: number,
+  id: string,
+): Placement {
+  let width = (source.width * sourceGeometry.width) / target.width
+  let height = (width * target.width) / assetAspectRatio / target.height
+  const shrink = Math.max(1, width, height)
+  width /= shrink
+  height /= shrink
+
+  const centerX = source.x + source.width / 2
+  const centerY = source.y + source.height / 2
+  return {
+    ...source,
+    id,
+    pageIndex,
+    width,
+    height,
+    x: clamp(centerX - width / 2, 0, 1 - width),
+    y: clamp(centerY - height / 2, 0, 1 - height),
+  }
+}
+
 function normalizeRotation(angle: number): 0 | 90 | 180 | 270 {
   const normalized = ((angle % 360) + 360) % 360
   if (normalized === 90 || normalized === 180 || normalized === 270) {

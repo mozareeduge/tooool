@@ -32,11 +32,13 @@ export function Pagination({ pageIndex, pageCount, onChange }: PaginationProps) 
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
       <button
-        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+        className="min-w-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
         disabled={pageIndex <= 0}
         onClick={() => onChange(pageIndex - 1)}
+        aria-label="Previous page"
       >
-        Previous
+        <span className="hidden sm:inline">Previous</span>
+        <span className="text-lg leading-none sm:hidden" aria-hidden="true">‹</span>
       </button>
 
       <div className="flex items-center gap-2 px-1 text-sm text-slate-500">
@@ -62,11 +64,13 @@ export function Pagination({ pageIndex, pageCount, onChange }: PaginationProps) 
       </div>
 
       <button
-        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+        className="min-w-11 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
         disabled={pageCount === 0 || pageIndex >= pageCount - 1}
         onClick={() => onChange(pageIndex + 1)}
+        aria-label="Next page"
       >
-        Next
+        <span className="hidden sm:inline">Next</span>
+        <span className="text-lg leading-none sm:hidden" aria-hidden="true">›</span>
       </button>
     </div>
   )
